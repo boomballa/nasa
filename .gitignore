@@ -1,0 +1,15 @@
+# Downloaded data (too large to commit)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Env
+.env
+
+# macOS
+.DS_Store
