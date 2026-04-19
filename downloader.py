@@ -526,16 +526,34 @@ def build_gallery(conn: sqlite3.Connection):
 # ---------------------------------------------------------------------------
 # Core fetch + download
 # ---------------------------------------------------------------------------
-async def fetch_metadata(session: aiohttp.ClientSession, apod_date: str) -> Optional[dict]:
+
+# Global rate-limit gate: when one worker hits 429, all workers wait here.
+_rate_limit_until: float = 0.0
+
+
+async def fetch_metadata(session: aiohttp.ClientSession, apod_date: str, _retries: int = 3) -> Optional[dict]:
+    global _rate_limit_until
+
+    # Honour any active global backoff before sending the request
+    wait = _rate_limit_until - asyncio.get_event_loop().time()
+    if wait > 0:
+        await asyncio.sleep(wait)
+
     params = {"api_key": API_KEY, "date": apod_date, "thumbs": "true"}
     try:
         async with session.get(APOD_API_URL, params=params) as resp:
             if resp.status == 200:
                 return await resp.json()
             elif resp.status == 429:
-                log.warning(f"Rate limited on {apod_date}, retrying after 60s...")
-                await asyncio.sleep(60)
-                return await fetch_metadata(session, apod_date)
+                backoff = 65
+                log.warning(f"Rate limited — pausing all workers for {backoff}s...")
+                _rate_limit_until = asyncio.get_event_loop().time() + backoff
+                await asyncio.sleep(backoff)
+                return await fetch_metadata(session, apod_date, _retries)
+            elif resp.status in (500, 502, 503, 504) and _retries > 0:
+                log.warning(f"API {resp.status} for {apod_date}, retrying in 5s... ({_retries} left)")
+                await asyncio.sleep(5)
+                return await fetch_metadata(session, apod_date, _retries - 1)
             else:
                 log.error(f"API error {resp.status} for {apod_date}")
                 return None
