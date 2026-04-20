@@ -484,8 +484,12 @@ def build_gallery(conn: sqlite3.Connection):
 
         # Thumbnail: local file (relative path from data/) or remote url
         local = r["local_path"]
+        if local and local.startswith("data/"):
+            local = local[5:]
+            r["local_path"] = local  # Update it so JSON data also has the correct relative path
+        
         if local:
-            thumb_src = local  # already relative-ish path like data/images/...
+            thumb_src = local
         elif r["media_type"] == "image":
             thumb_src = r["url"]
         else:
