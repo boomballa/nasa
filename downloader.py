@@ -255,6 +255,11 @@ _GALLERY_HTML = """\
     transition: transform .3s ease, filter .3s ease;
     filter: brightness(.85);
   }
+  .card.is-read img { filter: brightness(0.4) grayscale(50%); opacity: 0.6; }
+  .card.is-read::before {
+    content: "已读"; position: absolute; top: 6px; right: 6px;
+    background: rgba(37, 99, 235, 0.8); color: #fff; font-size: 0.65rem; padding: 2px 5px; border-radius: 4px; z-index: 2;
+  }
   .card:hover img { transform: scale(1.06); filter: brightness(1); }
   .card .overlay {
     position: absolute; inset: 0;
@@ -319,7 +324,11 @@ _GALLERY_HTML = """\
   <p id="total-count"></p>
 </header>
 
-<div id="filters"><button class="active" data-year="all">All</button>YEAR_BUTTONS</div>
+<div id="filters">
+  <button class="active" data-year="all">All</button>YEAR_BUTTONS
+  <div style="width:1px; background:#444; margin:0 .5rem;"></div>
+  <button id="toggle-unread">只看未读</button>
+</div>
 
 <div id="search-wrap">
   <input id="search" type="search" placeholder="Search by title or date…">
@@ -362,6 +371,18 @@ totalEl.textContent = DATA.length + ' images in archive';
 
 let activeYear = 'all';
 let searchQ    = '';
+let showUnreadOnly = false;
+
+// LocalStorage Read History
+let readApods = JSON.parse(localStorage.getItem('apod_read_history') || '[]');
+const readSet = new Set(readApods);
+const toggleUnreadBtn = document.getElementById('toggle-unread');
+
+toggleUnreadBtn.addEventListener('click', () => {
+  showUnreadOnly = !showUnreadOnly;
+  toggleUnreadBtn.classList.toggle('active', showUnreadOnly);
+  applyFilters();
+});
 
 function applyFilters() {
   let totalShown = 0;
@@ -371,10 +392,17 @@ function applyFilters() {
     cards.forEach(card => {
       const year  = card.dataset.year;
       const text  = card.dataset.search;
+      const isRead= readSet.has(card.dataset.date);
+      
       const yOk   = activeYear === 'all' || year === activeYear;
       const sOk   = !searchQ || text.includes(searchQ);
-      const vis   = yOk && sOk;
+      const unOk  = !showUnreadOnly || !isRead;
+      const vis   = yOk && sOk && unOk;
+      
       card.style.display = vis ? '' : 'none';
+      if (isRead) card.classList.add('is-read');
+      else card.classList.remove('is-read');
+
       if (vis) {
         groupShown++;
         totalShown++;
@@ -412,6 +440,13 @@ const modalExpl  = document.getElementById('modal-expl');
 const modalLinks = document.getElementById('modal-links');
 
 function openModal(date) {
+  if (!readSet.has(date)) {
+    readSet.add(date);
+    readApods.push(date);
+    localStorage.setItem('apod_read_history', JSON.stringify(readApods));
+    applyFilters(); // highlight card as read
+  }
+
   const d = byDate[date];
   if (!d) return;
   modalDate.textContent  = d.date;
