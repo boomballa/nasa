@@ -417,8 +417,8 @@ function applyFilters() {
 // Year filter
 document.getElementById('filters').addEventListener('click', e => {
   const btn = e.target.closest('button');
-  if (!btn) return;
-  document.querySelectorAll('#filters button').forEach(b => b.classList.remove('active'));
+  if (!btn || btn.id === 'toggle-unread') return;
+  document.querySelectorAll('#filters button:not(#toggle-unread)').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   activeYear = btn.dataset.year;
   applyFilters();
