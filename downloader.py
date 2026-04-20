@@ -577,36 +577,6 @@ async def download_image(session: aiohttp.ClientSession, url: str, save_path: Pa
         return False
 
 
-def download_video(url: str, save_path: Path) -> bool:
-    """Download a video (YouTube etc.) via yt-dlp. Blocking — run in executor."""
-    try:
-        import yt_dlp
-    except ImportError:
-        log.error("yt-dlp not installed. Run: pip install yt-dlp")
-        return False
-
-    ydl_opts = {
-        "outtmpl":  str(save_path.with_suffix("")),   # yt-dlp adds extension itself
-        "format":   "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "merge_output_format": "mp4",
-        "quiet":    True,
-        "no_warnings": True,
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        # yt-dlp may produce save_path or save_path with different suffix
-        if not save_path.exists():
-            # look for any file yt-dlp may have written
-            candidates = list(save_path.parent.glob(f"{save_path.stem}.*"))
-            if candidates:
-                candidates[0].rename(save_path)
-        return save_path.exists()
-    except Exception as e:
-        log.error(f"Video download failed ({url}): {e}")
-        return False
-
-
 async def process_one(
     session: aiohttp.ClientSession,
     conn: sqlite3.Connection,
@@ -659,15 +629,15 @@ async def process_one(
             else:
                 record["downloaded"] = 0
         else:
-            # For videos, download via yt-dlp (runs in thread to avoid blocking)
-            video_url = url
-            vid_path  = image_save_path(apod_date, ".mp4")
-            success   = await asyncio.get_event_loop().run_in_executor(
-                None, download_video, video_url, vid_path
-            )
-            if success:
-                record["local_path"] = str(vid_path)
-                record["downloaded"] = 1
+            # For videos, download the thumbnail image if provided by API
+            thumbnail_url = metadata.get("thumbnail_url")
+            if thumbnail_url:
+                ext = Path(thumbnail_url.split("?")[0]).suffix or ".jpg"
+                thumb_path = image_save_path(apod_date, ext)
+                success = await download_image(session, thumbnail_url, thumb_path)
+                if success:
+                    record["local_path"] = str(thumb_path)
+                    record["downloaded"] = 1
 
         # Save JSON sidecar
         meta = {
