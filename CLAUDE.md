@@ -13,7 +13,8 @@
 
 ## 每次修改后
 
-提供一条符合 [Conventional Commits](https://www.conventionalcommits.org/) 规范的 git 提交信息，**必须使用英文**，格式：
+请帮我自动执行 `git add` 和 `git commit` 操作。
+提交信息需符合 [Conventional Commits](https://www.conventionalcommits.org/) 规范，**必须使用英文**，格式：
 
 ```
 <type>(<scope>): <short description in English>

@@ -234,10 +234,17 @@ _GALLERY_HTML = """\
   #search:focus { border-color: #2563eb; }
 
   /* ── Grid ── */
-  #grid {
+  #gallery-container { padding: 0 3px 3px; }
+  .month-group { margin-bottom: 2rem; }
+  .month-header {
+    font-size: 1.4rem; color: #fff; padding: 1rem 0.5rem 0.5rem;
+    border-bottom: 1px solid #333; margin-bottom: 0.8rem;
+    font-weight: 600; letter-spacing: 0.05em;
+  }
+  .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 3px; padding: 0 3px 3px;
+    gap: 3px;
   }
   .card {
     position: relative; aspect-ratio: 1; overflow: hidden; cursor: pointer;
@@ -318,7 +325,7 @@ _GALLERY_HTML = """\
   <input id="search" type="search" placeholder="Search by title or date…">
 </div>
 
-<div id="grid">CARDS</div>
+<div id="gallery-container">CARDS</div>
 <div id="empty">No results found.</div>
 <div id="stats"><span id="shown-count"></span></div>
 
@@ -344,12 +351,12 @@ const DATA = JSON_DATA;
 const byDate = {};
 DATA.forEach(d => byDate[d.date] = d);
 
-const grid     = document.getElementById('grid');
-const cards    = Array.from(grid.querySelectorAll('.card'));
-const emptyMsg = document.getElementById('empty');
-const shownEl  = document.getElementById('shown-count');
-const totalEl  = document.getElementById('total-count');
-const searchEl = document.getElementById('search');
+const gallery    = document.getElementById('gallery-container');
+const monthGroups= Array.from(gallery.querySelectorAll('.month-group'));
+const emptyMsg   = document.getElementById('empty');
+const shownEl    = document.getElementById('shown-count');
+const totalEl    = document.getElementById('total-count');
+const searchEl   = document.getElementById('search');
 
 totalEl.textContent = DATA.length + ' images in archive';
 
@@ -357,18 +364,26 @@ let activeYear = 'all';
 let searchQ    = '';
 
 function applyFilters() {
-  let shown = 0;
-  cards.forEach(card => {
-    const year  = card.dataset.year;
-    const text  = card.dataset.search;
-    const yOk   = activeYear === 'all' || year === activeYear;
-    const sOk   = !searchQ || text.includes(searchQ);
-    const vis   = yOk && sOk;
-    card.style.display = vis ? '' : 'none';
-    if (vis) shown++;
+  let totalShown = 0;
+  monthGroups.forEach(group => {
+    let groupShown = 0;
+    const cards = Array.from(group.querySelectorAll('.card'));
+    cards.forEach(card => {
+      const year  = card.dataset.year;
+      const text  = card.dataset.search;
+      const yOk   = activeYear === 'all' || year === activeYear;
+      const sOk   = !searchQ || text.includes(searchQ);
+      const vis   = yOk && sOk;
+      card.style.display = vis ? '' : 'none';
+      if (vis) {
+        groupShown++;
+        totalShown++;
+      }
+    });
+    group.style.display = groupShown > 0 ? '' : 'none';
   });
-  emptyMsg.style.display = shown === 0 ? 'block' : 'none';
-  shownEl.textContent = shown + ' / ' + DATA.length + ' shown';
+  emptyMsg.style.display = totalShown === 0 ? 'block' : 'none';
+  shownEl.textContent = totalShown + ' / ' + DATA.length + ' shown';
 }
 
 // Year filter
@@ -437,7 +452,7 @@ function closeModal() {
   document.body.style.overflow = '';
 }
 
-grid.addEventListener('click', e => {
+gallery.addEventListener('click', e => {
   const card = e.target.closest('.card');
   if (card) openModal(card.dataset.date);
 });
@@ -475,9 +490,26 @@ def build_gallery(conn: sqlite3.Connection):
     )
 
     # Build card HTML for each record
+    import datetime
     card_parts = []
+    current_month = ""
+    
     for r in records:
         year  = r["date"][:4]
+        year_month = r["date"][:7]
+        
+        if year_month != current_month:
+            if current_month != "":
+                card_parts.append('</div></div>') # Close previous grid and month-group
+            
+            dt = datetime.datetime.strptime(year_month, "%Y-%m")
+            month_name = dt.strftime("%B %Y") # e.g. 'April 2026'
+            
+            card_parts.append(f'<div class="month-group" data-year="{year}">')
+            card_parts.append(f'<div class="month-header">{month_name}</div>')
+            card_parts.append('<div class="grid">')
+            current_month = year_month
+
         title = r["title"].replace('"', "&quot;").replace("<", "&lt;")
         date_ = r["date"]
         search_text = f"{date_} {r['title']}".lower().replace('"', "")
@@ -511,6 +543,9 @@ def build_gallery(conn: sqlite3.Connection):
             f'<div class="title">{title}</div>'
             f'</div></div>'
         )
+
+    if records:
+        card_parts.append('</div></div>') # Close final grid and month-group
 
     # Serialize records to JSON for the JS data array
     js_data = json.dumps(records, ensure_ascii=False)
