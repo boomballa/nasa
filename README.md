@@ -60,6 +60,9 @@ python downloader.py --start 1995-06-16
 # 强制重新下载（忽略已有文件）
 python downloader.py --latest 30 --force
 
+# 只重试之前失败的 / 文件丢失的日期（无需重跑全量）
+python downloader.py --retry-failed
+
 # 生成 HTML 图库
 python downloader.py --gallery
 

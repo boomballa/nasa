@@ -105,6 +105,34 @@ def already_downloaded(conn: sqlite3.Connection, apod_date: str) -> bool:
     return False
 
 
+def get_failed_dates(conn: sqlite3.Connection) -> list[str]:
+    """
+    Return dates that need to be retried:
+      1. downloaded=0 and media_type='image'  — image that previously failed
+      2. downloaded=1 but local file is gone  — file deleted after download
+    Videos without thumbnails are intentionally excluded (they can't be fixed by retrying).
+    """
+    rows = conn.execute(
+        "SELECT date, downloaded, local_path, media_type FROM apod ORDER BY date"
+    ).fetchall()
+
+    to_retry = []
+    for apod_date, downloaded, local_path, media_type in rows:
+        if media_type != "image":
+            # For videos: only retry if we expected a thumbnail but file is gone
+            if downloaded and local_path and not Path(local_path).exists():
+                to_retry.append(apod_date)
+            continue
+
+        if not downloaded:
+            to_retry.append(apod_date)
+        elif local_path and not Path(local_path).exists():
+            # Was marked downloaded but the file has since disappeared
+            to_retry.append(apod_date)
+
+    return to_retry
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -816,6 +844,8 @@ Examples:
     group.add_argument("--date",             metavar="YYYY-MM-DD", help="Download a specific date")
     group.add_argument("--latest",           metavar="N", type=int, help="Download latest N days")
     group.add_argument("--start",            metavar="YYYY-MM-DD", help="Start date for range download")
+    group.add_argument("--retry-failed",      action="store_true",
+                       help="Retry only dates that previously failed or whose files are missing")
     group.add_argument("--rebuild-markdown", action="store_true",
                        help="Regenerate .md files for all records in the database")
     group.add_argument("--gallery",          action="store_true",
@@ -831,6 +861,19 @@ Examples:
 def main():
     args = parse_args()
     today = date.today()
+
+    if args.retry_failed:
+        conn = init_db()
+        dates = get_failed_dates(conn)
+        conn.close()
+        if not dates:
+            print("Nothing to retry — all previously downloaded records look intact.")
+            return
+        print(f"NASA APOD Downloader  |  {len(dates)} failed/missing date(s) to retry")
+        print(f"Storage: {IMAGES_DIR.resolve()}")
+        print(f"Database: {DB_PATH.resolve()}\n")
+        asyncio.run(run_batch(dates, skip_existing=False))
+        return
 
     if args.rebuild_markdown:
         conn = init_db()
