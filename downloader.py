@@ -844,36 +844,24 @@ Examples:
     group.add_argument("--date",             metavar="YYYY-MM-DD", help="Download a specific date")
     group.add_argument("--latest",           metavar="N", type=int, help="Download latest N days")
     group.add_argument("--start",            metavar="YYYY-MM-DD", help="Start date for range download")
-    group.add_argument("--retry-failed",      action="store_true",
-                       help="Retry only dates that previously failed or whose files are missing")
     group.add_argument("--rebuild-markdown", action="store_true",
                        help="Regenerate .md files for all records in the database")
     group.add_argument("--gallery",          action="store_true",
                        help="Generate data/gallery.html for browsing downloaded images")
 
-    parser.add_argument("--end",   metavar="YYYY-MM-DD",
+    parser.add_argument("--end",          metavar="YYYY-MM-DD",
                         help="End date for range (default: today, used with --start)")
-    parser.add_argument("--force", action="store_true",
+    parser.add_argument("--force",        action="store_true",
                         help="Re-download even if already exists")
+    parser.add_argument("--retry-failed", action="store_true",
+                        help="Within the selected date set, only retry failed/missing entries. "
+                             "Used alone: retries all failed dates globally.")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     today = date.today()
-
-    if args.retry_failed:
-        conn = init_db()
-        dates = get_failed_dates(conn)
-        conn.close()
-        if not dates:
-            print("Nothing to retry — all previously downloaded records look intact.")
-            return
-        print(f"NASA APOD Downloader  |  {len(dates)} failed/missing date(s) to retry")
-        print(f"Storage: {IMAGES_DIR.resolve()}")
-        print(f"Database: {DB_PATH.resolve()}\n")
-        asyncio.run(run_batch(dates, skip_existing=False))
-        return
 
     if args.rebuild_markdown:
         conn = init_db()
@@ -886,6 +874,8 @@ def main():
         build_gallery(conn)
         conn.close()
         return
+
+    conn = init_db()
 
     if args.today:
         dates = [today.isoformat()]
@@ -902,18 +892,40 @@ def main():
         end   = datetime.strptime(args.end, "%Y-%m-%d").date() if args.end else today
         if start > end:
             sys.exit("Error: --start must be before --end")
-        # APOD launched June 16, 1995
         apod_launch = date(1995, 6, 16)
         if start < apod_launch:
-            log.warning(f"APOD launched on 1995-06-16, adjusting start date.")
+            log.warning("APOD launched on 1995-06-16, adjusting start date.")
             start = apod_launch
         dates = [d.isoformat() for d in date_range(start, end)]
 
-    print(f"NASA APOD Downloader  |  {len(dates)} date(s) to process")
+    else:
+        # --retry-failed used alone (no date selector) → global scope
+        dates = None
+
+    # Apply --retry-failed filter
+    if args.retry_failed:
+        failed = set(get_failed_dates(conn))
+        if dates is None:
+            # Global: all failed dates
+            dates = sorted(failed)
+        else:
+            # Scoped: only failed dates within the given range
+            dates = [d for d in dates if d in failed]
+
+        if not dates:
+            print("Nothing to retry — all records in the selected range look intact.")
+            conn.close()
+            return
+
+    conn.close()
+
+    print(f"NASA APOD Downloader  |  {len(dates)} date(s) to process"
+          + (" (failed/missing only)" if args.retry_failed else ""))
     print(f"Storage: {IMAGES_DIR.resolve()}")
     print(f"Database: {DB_PATH.resolve()}\n")
 
-    asyncio.run(run_batch(dates, skip_existing=not args.force))
+    skip = not args.force and not args.retry_failed
+    asyncio.run(run_batch(dates, skip_existing=skip))
 
 
 if __name__ == "__main__":
